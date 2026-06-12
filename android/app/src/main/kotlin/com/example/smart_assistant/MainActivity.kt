@@ -1,4 +1,4 @@
-package sy.charity_donations.syrian_arab
+package com.example.smart_assistant
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -1,0 +1,75 @@
+name: Flutter CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    # نقل المتغيرات السرية إلى مستوى الـ job لتكون متاحة لجميع الخطوات
+    env:
+      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.1' # يمكنك تحديث هذا الإصدار إذا لزم الأمر
+
+      - name: Flutter Clean
+        run: flutter clean
+
+      - name: Flutter Pub Get
+        run: flutter pub get
+
+      - name: Build All APKs
+        run: |
+          # الخطوة 1: تهيئة ملف Keystore من الـ Secrets
+          mkdir -p android/app
+          echo $KEYSTORE_BASE64 | base64 --decode > android/app/upload-keystore.jks
+          
+          # الخطوة 2: بناء النسخ المقسمة (32-bit و 64-bit)
+          echo "Building split-per-abi APKs..."
+          flutter build apk --release --split-per-abi
+          
+          # الخطوة 3: بناء نسخة الـ APK المعماة (Obfuscated)
+          echo "Building obfuscated APK..."
+          # سيتم إنشاء مجلد 'build/symbols' يحتوي على خريطة فك التعتيم
+          flutter build apk --release --obfuscate --split-debug-info=build/symbols
+
+      - name: Upload 32-bit APK (armeabi-v7a)
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-apk-armeabi-v7a
+          path: build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+
+      - name: Upload 64-bit APK (arm64-v8a)
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-apk-arm64-v8a
+          path: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+
+      - name: Upload Obfuscated APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-apk-obfuscated
+          # المسار الافتراضي للـ APK غير المقسم هو app-release.apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload Obfuscation Symbols
+        uses: actions/upload-artifact@v4
+        with:
+          name: obfuscation-symbols
+          # رفع مجلد الـ symbols بالكامل، وهو ضروري لفك تشفير أخطاء التطبيق لاحقاً
+          path: build/symbols
+ 

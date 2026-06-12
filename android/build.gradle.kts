@@ -15,8 +15,17 @@ subprojects {
     val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 }
+
 subprojects {
     project.evaluationDependsOn(":app")
+    // فرض نسخة NDK الموجودة لديك على كل المشاريع الفرعية
+    plugins.withId("com.android.library") {
+        extensions.findByName("android")?.let { ext ->
+            if (ext is com.android.build.gradle.BaseExtension) {
+                ext.ndkVersion = "27.3.13750724"
+            }
+        }
+    }
 }
 
 tasks.register<Delete>("clean") {
