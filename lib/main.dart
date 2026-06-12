@@ -38,9 +38,8 @@ class _ChatPageState extends State<ChatPage> {
   static const String _modelPath =
       '/data/data/com.example.smart_assistant/files/Qwen3-4B-Q4_K_M.gguf';
 
-  // محرّك llamadart + جلسة الدردشة (تُنشأ بعد تحميل النموذج)
+  // محرّك llamadart
   final LlamaEngine _engine = LlamaEngine(LlamaBackend());
-  ChatSession? _session;
 
   final TextEditingController _inputController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
@@ -106,22 +105,11 @@ class _ChatPageState extends State<ChatPage> {
       }
 
       // 2) تحميل النموذج. على أندرويد المحرّك يفضّل CPU افتراضياً (مناسب لـ Mali-G52).
-      //    ModelParams: contextSize = حجم السياق، gpuLayers = 0 لإجبار CPU فقط.
+      //    اسم المعامل الصحيح في llamadart هو modelParams (وليس params).
       setState(() => _status = 'جارٍ تحميل النموذج…');
       await _engine.loadModel(
         _modelPath,
-        params: const ModelParams(
-          contextSize: 1024,
-          gpuLayers: 0, // CPU فقط — الأكثر استقراراً
-        ),
-      );
-
-      // 3) إنشاء جلسة دردشة تدير تاريخ المحادثة وحدود السياق تلقائياً.
-      //    /no_think لإيقاف وضع التفكير في Qwen3 وتسريع الإجابة.
-      _session = ChatSession(
-        _engine,
-        systemPrompt:
-            'أنت مساعد ذكي يجيب باللغة العربية بإيجاز ووضوح ودقة.\n/no_think',
+        modelParams: const ModelParams(contextSize: 1024),
       );
 
       setState(() {
@@ -137,7 +125,7 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _send() async {
     final text = _inputController.text.trim();
-    if (text.isEmpty || !_modelLoaded || _busy || _session == null) return;
+    if (text.isEmpty || !_modelLoaded || _busy) return;
 
     setState(() {
       _messages.add(_Message(role: 'user', content: text));
@@ -148,26 +136,31 @@ class _ChatPageState extends State<ChatPage> {
     _scrollToBottom();
 
     try {
-      // إعدادات العيّنة الموصى بها رسمياً من Qwen لوضع عدم التفكير:
-      // temperature=0.7, topP=0.8, topK=20, minP=0, presencePenalty=1.5
-      final params = const GenerationParams(
-        temperature: 0.7,
-        topP: 0.8,
-        topK: 20,
-        minP: 0.0,
-        presencePenalty: 1.5,
-        maxTokens: 512,
+      // نبني الـ prompt بقالب ChatML الذي يفهمه Qwen3، مع /no_think لإيقاف التفكير.
+      // llamadart يطبّق قالب النموذج المدمج، لكن تمرير بنية ChatML صريحة أضمن.
+      final buffer = StringBuffer();
+      buffer.writeln('<|im_start|>system');
+      buffer.writeln(
+        'أنت مساعد ذكي يجيب باللغة العربية بإيجاز ووضوح ودقة. /no_think',
+      );
+      buffer.writeln('<|im_end|>');
+      for (final m in _messages) {
+        buffer.writeln('<|im_start|>${m.role}');
+        buffer.writeln(m.content);
+        buffer.writeln('<|im_end|>');
+      }
+      buffer.writeln('<|im_start|>assistant');
+
+      // GenerationParams في llamadart: نستخدم الحقول المؤكدة فقط (maxTokens).
+      // إعدادات العيّنة الدقيقة يديرها المحرّك/القالب المدمج لـ Qwen3.
+      final stream = _engine.generate(
+        buffer.toString(),
+        params: const GenerationParams(maxTokens: 512),
       );
 
-      // ChatSession.create يضيف رسالة المستخدم للتاريخ ويبثّ الرد على شكل أجزاء
-      final stream = _session!.create([LlamaTextContent(text)], params: params);
-
-      await for (final chunk in stream) {
-        final delta = chunk.choices.first.delta.content;
-        if (delta != null && delta.isNotEmpty) {
-          setState(() => _streamingText += delta);
-          _scrollToBottom();
-        }
+      await for (final token in stream) {
+        setState(() => _streamingText += token);
+        _scrollToBottom();
       }
 
       // انتهى البثّ — ثبّت الرد في قائمة الرسائل
