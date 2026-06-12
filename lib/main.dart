@@ -104,12 +104,13 @@ class _ChatPageState extends State<ChatPage> {
         return;
       }
 
-      // 2) تحميل النموذج. على أندرويد المحرّك يفضّل CPU افتراضياً (مناسب لـ Mali-G52).
-      //    اسم المعامل الصحيح في llamadart هو modelParams (وليس params).
+      // 2) تحميل النموذج مع إجبار CPU صراحةً.
+      //    Mali-G52 + Vulkan = بطء وحرارة بلا فائدة، فنعطّل GPU تماماً.
+      //    التوثيق: وضع CPU يتحقق عندما يكون gpuLayers == 0.
       setState(() => _status = 'جارٍ تحميل النموذج…');
       await _engine.loadModel(
         _modelPath,
-        modelParams: const ModelParams(contextSize: 1024),
+        modelParams: const ModelParams(contextSize: 1024, gpuLayers: 0),
       );
 
       setState(() {
